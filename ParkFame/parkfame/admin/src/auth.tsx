@@ -3,7 +3,7 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebas
 import { auth } from './firebase';
 import { api } from './lib';
 
-interface Profile { uid: string; name: string; email: string; role: 'admin' | 'attendant' }
+interface Profile { uid: string; name: string; email: string; role: 'admin' | 'attendant'; lotIds?: string[] | null }
 interface Ctx {
   user: Profile | null; loading: boolean; error: string;
   login: (email: string, password: string) => Promise<void>; logout: () => Promise<void>;
