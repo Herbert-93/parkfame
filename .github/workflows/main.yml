@@ -30,8 +30,8 @@ jobs:
         working-directory: app
         run: |
           mkdir -p assets/icon
-          cp ../ParkFame/parkfame/mobile/assets/icon/*.png assets/icon/
-          cp ../ParkFame/parkfame/mobile/flutter_launcher_icons.yaml .
+          cp ../ParkFame/parkfame/mobile/lib/assets/icon/*.png assets/icon/
+          cp ../ParkFame/parkfame/mobile/lib/flutter_launcher_icons.yaml .
           flutter pub add --dev flutter_launcher_icons
           dart run flutter_launcher_icons
 
