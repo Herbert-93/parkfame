@@ -22,11 +22,14 @@ jobs:
           flutter pub add firebase_core firebase_auth http image_picker google_mlkit_text_recognition provider intl google_fonts:^6.2.1
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle*
           sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <application|' android/app/src/main/AndroidManifest.xml
+          echo "-dontwarn com.google.mlkit.vision.text.**" > android/app/proguard-rules.pro
+          sed -i '/release {/a\            isMinifyEnabled = false\n            isShrinkResources = false\n            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")' android/app/build.gradle.kts
+          echo "---- build.gradle.kts ----" && cat android/app/build.gradle.kts
 
       - name: Build release APK
         working-directory: app
         run: >
-          flutter build apk --release --no-shrink
+          flutter build apk --release
           --dart-define=API_URL=${{ secrets.API_URL }}
           --dart-define=FB_API_KEY=${{ secrets.FB_API_KEY }}
           --dart-define=FB_APP_ID=${{ secrets.FB_APP_ID }}
