@@ -15,6 +15,8 @@ export interface AppUser {
   email: string;
   role: 'admin' | 'attendant';
   lotId: string | null;
+  /** Admins only. Missing/null = super admin (all lots). An array = lot admin, limited to those lots. */
+  lotIds?: string[] | null;
   active: boolean;
 }
 
