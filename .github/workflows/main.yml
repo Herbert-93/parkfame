@@ -2,7 +2,7 @@ name: Build ParkFame Android APK
 on:
   workflow_dispatch: {}
   push:
-    paths: ['ParkFame/parkfame/mobile/**', '.github/workflows/build-apk.yml']
+    paths: ['ParkFame/parkfame/mobile/**', '.github/workflows/main.yml']
 
 jobs:
   apk:
@@ -25,6 +25,15 @@ jobs:
           echo "-dontwarn com.google.mlkit.vision.text.**" > android/app/proguard-rules.pro
           sed -i '/release {/a\            isMinifyEnabled = false\n            isShrinkResources = false\n            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")' android/app/build.gradle.kts
           echo "---- build.gradle.kts ----" && cat android/app/build.gradle.kts
+
+      - name: Apply ParkFame "P" launcher icon
+        working-directory: app
+        run: |
+          mkdir -p assets/icon
+          cp ../ParkFame/parkfame/mobile/assets/icon/*.png assets/icon/
+          cp ../ParkFame/parkfame/mobile/flutter_launcher_icons.yaml .
+          flutter pub add --dev flutter_launcher_icons
+          dart run flutter_launcher_icons
 
       - name: Build release APK
         working-directory: app
