@@ -11,7 +11,7 @@ const nav = [
   { to: '/', label: 'Dashboard', icon: '▦' },
   { to: '/vehicles', label: 'Vehicles', icon: '🚗' },
   { to: '/rates', label: 'Lots & Rates', icon: '💰' },
-  { to: '/team', label: 'Attendants', icon: '👥' },
+  { to: '/team', label: 'Team', icon: '👥' },
   { to: '/activity', label: 'Live Activity', icon: '⚡' },
 ];
 
