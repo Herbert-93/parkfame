@@ -3,7 +3,7 @@ services:
   - type: web
     name: parkfame-api
     runtime: node
-    rootDir: backend
+    rootDir: ParkFame/parkfame/backend
     plan: free            # use "starter" for production (free sleeps after 15 min idle)
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
@@ -26,7 +26,7 @@ services:
   - type: web
     name: parkfame-admin
     runtime: static
-    rootDir: admin
+    rootDir: ParkFame/parkfame/admin
     buildCommand: npm install --include=dev && npm run build
     staticPublishPath: dist
     autoDeploy: true
