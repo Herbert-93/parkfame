@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, calcFee, Lot, money, Rates as RatesT, Size, SIZES, usePoll } from '../lib';
+import { useAuth } from '../auth';
 
 const blank = (): Omit<Lot, 'id'> => ({
   name: '', address: '', capacity: 50, active: true,
@@ -16,6 +17,8 @@ const blank = (): Omit<Lot, 'id'> => ({
 });
 
 export default function Rates() {
+  const { user } = useAuth();
+  const isMain = !Array.isArray(user?.lotIds); // lot admins cannot create new lots
   const { data: lots, reload } = usePoll<Lot[]>(() => api('/api/lots'), 60000);
   const [selected, setSelected] = useState<string>('');
   const [draft, setDraft] = useState<Omit<Lot, 'id'> | null>(null);
@@ -30,7 +33,7 @@ export default function Rates() {
     else { const l = lots?.find((x) => x.id === selected); if (l) { const { id, ...rest } = l; setDraft(JSON.parse(JSON.stringify(rest))); } }
   }, [selected, lots]);
 
-  if (!draft) return <><header className="topbar"><h2>Lots &amp; Rates</h2></header><button className="btn primary" onClick={() => setSelected('new')}>+ Create your first parking lot</button></>;
+  if (!draft) return <><header className="topbar"><h2>Lots &amp; Rates</h2></header>{isMain ? <button className="btn primary" onClick={() => setSelected('new')}>+ Create your first parking lot</button> : <p className="muted">No parking lot is assigned to your account yet.</p>}</>;
 
   const setRates = (fn: (r: RatesT) => void) => { const d = structuredClone(draft); fn(d.rates); setDraft(d); };
 
@@ -51,7 +54,7 @@ export default function Rates() {
       <div className="toolbar">
         <select className="input" value={selected} onChange={(e) => setSelected(e.target.value)}>
           {lots?.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          <option value="new">+ New parking lot</option>
+          {isMain && <option value="new">+ New parking lot</option>}
         </select>
       </div>
 
