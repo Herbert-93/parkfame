@@ -22,3 +22,21 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (req.user?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   next();
 }
+
+/** Lot ids this user may work with. null = every lot (super admin). */
+export function lotScope(u: AppUser): string[] | null {
+  if (u.role === 'admin') return Array.isArray(u.lotIds) ? u.lotIds : null;
+  return u.lotId ? [u.lotId] : [];
+}
+
+export const isSuperAdmin = (u: AppUser) => u.role === 'admin' && lotScope(u) === null;
+
+export function canAccessLot(u: AppUser, lotId: string | null | undefined) {
+  const scope = lotScope(u);
+  return scope === null || (!!lotId && scope.includes(lotId));
+}
+
+export function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.user || !isSuperAdmin(req.user)) return res.status(403).json({ error: 'Only a main administrator can do this' });
+  next();
+}
