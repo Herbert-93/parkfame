@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { calculateFee } from '../billing';
 import { RateConfig, VEHICLE_SIZES, AppUser, VehicleSize } from '../types';
 import { asyncH, HttpError, normalizePlate, serialize, sessionDto } from '../lib/util';
+import { canAccessLot, lotScope } from '../middleware';
 
 const r = Router();
 
@@ -20,7 +21,7 @@ const checkInSchema = z.object({
 });
 
 function assertAccess(u: AppUser, lotId: string) {
-  if (u.role === 'attendant' && u.lotId !== lotId) throw new HttpError(403, 'This car belongs to another parking lot');
+  if (!canAccessLot(u, lotId)) throw new HttpError(403, 'This car belongs to another parking lot');
 }
 
 // ---- list -----------------------------------------------------------------
@@ -28,12 +29,15 @@ r.get('/', asyncH(async (req, res) => {
   const u = req.user!;
   let q: FirebaseFirestore.Query = db.collection('sessions');
   const lotId = u.role === 'attendant' ? u.lotId : (req.query.lotId as string | undefined);
+  const scope = lotScope(u);
+  if (lotId && !canAccessLot(u, lotId)) throw new HttpError(403, 'You do not manage that parking lot');
   if (lotId) q = q.where('lotId', '==', lotId);
   const status = req.query.status as string | undefined;
   if (status === 'parked' || status === 'exited') q = q.where('status', '==', status);
   const snap = await q.get();
   const search = normalizePlate(String(req.query.q ?? ''));
   const items = snap.docs
+    .filter((d) => !scope || scope.includes(d.data().lotId))
     .filter((d) => !search || (d.data().plate as string).includes(search))
     .sort((a, b) => {
       const ta = (a.data().exitAt ?? a.data().entryAt).toMillis();
@@ -51,6 +55,7 @@ r.post('/check-in', asyncH(async (req, res) => {
   const u = req.user!;
   const lotId = u.role === 'attendant' ? u.lotId : (body.lotId ?? u.lotId);
   if (!lotId) throw new HttpError(400, 'No parking lot is assigned to this account');
+  assertAccess(u, lotId);
   const lotSnap = await db.collection('lots').doc(lotId).get();
   if (!lotSnap.exists) throw new HttpError(404, 'Parking lot not found');
   const lot = lotSnap.data()!;
