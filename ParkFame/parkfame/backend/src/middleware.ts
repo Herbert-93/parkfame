@@ -11,7 +11,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (!snap.exists) return res.status(403).json({ error: 'Account is not registered in ParkFame' });
     const data = snap.data() as Omit<AppUser, 'uid'>;
     if (data.active === false) return res.status(403).json({ error: 'Account disabled' });
-    req.user = { uid: decoded.uid, ...data };
+    const user: AppUser = { uid: decoded.uid, ...data };
+    // An admin tied to one lot (lotId set, no lotIds list) is a lot admin, never a main admin.
+    if (user.role === 'admin' && !Array.isArray(user.lotIds) && user.lotId) user.lotIds = [user.lotId];
+    req.user = user;
     next();
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });
