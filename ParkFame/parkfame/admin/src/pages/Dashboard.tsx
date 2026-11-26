@@ -7,8 +7,8 @@ interface Stats {
   occupancy: { lotId: string; name: string; capacity: number; parked: number }[];
 }
 
-export const pillClass = (t: string) => (t === 'CHECK_IN' ? 'green' : t === 'CHECK_OUT' ? 'blue' : 'grey');
-export const pillLabel = (t: string) => (t === 'CHECK_IN' ? 'Check-in' : t === 'CHECK_OUT' ? 'Check-out' : 'Sign-in');
+export const pillClass = (t: string) => (t === 'CHECK_IN' ? 'green' : t === 'CHECK_OUT' ? 'blue' : t === 'ADMIN' ? 'amber' : 'grey');
+export const pillLabel = (t: string) => (t === 'CHECK_IN' ? 'Check-in' : t === 'CHECK_OUT' ? 'Check-out' : t === 'ADMIN' ? 'Admin' : 'Sign-in');
 
 export default function Dashboard() {
   const { data: s, error } = usePoll<Stats>(() => api('/api/stats'), 10000);
