@@ -1,4 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
+import { Timestamp } from 'firebase-admin/firestore';
+import { db } from '../firebase';
 
 export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -6,6 +8,13 @@ export class HttpError extends Error {
 
 export const asyncH = (fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>) =>
   (req: Request, res: Response, next: NextFunction) => { fn(req, res, next).catch(next); };
+
+/** Audit trail: shows up in the admin Live Activity feed. */
+export async function logAdmin(u: { uid: string; name: string }, message: string, extra: Record<string, unknown> = {}) {
+  await db.collection('activity').add({
+    type: 'ADMIN', message: `${u.name}: ${message}`, userId: u.uid, userName: u.name, lotId: null, at: Timestamp.now(), ...extra,
+  });
+}
 
 export const normalizePlate = (p: string) => p.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
