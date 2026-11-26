@@ -19,7 +19,7 @@ jobs:
           flutter create --org com.parkfame --project-name parkfame --platforms=android app
           rm -rf app/lib && cp -r ParkFame/parkfame/mobile/lib app/lib
           cd app
-          flutter pub add firebase_core firebase_auth http image_picker google_mlkit_text_recognition provider intl google_fonts path_provider
+          flutter pub add firebase_core firebase_auth http image_picker google_mlkit_text_recognition provider intl path_provider
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle*
           sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <application|' android/app/src/main/AndroidManifest.xml
 
