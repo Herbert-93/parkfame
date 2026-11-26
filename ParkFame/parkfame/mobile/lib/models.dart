@@ -10,12 +10,14 @@ class SizeRate {
 class RateConfig {
   final int blockHours;
   final int graceMinutes;
+  final double overstayHours;
   final Map<String, SizeRate> sizes;
-  RateConfig(this.blockHours, this.graceMinutes, this.sizes);
+  RateConfig(this.blockHours, this.graceMinutes, this.sizes, {this.overstayHours = 6});
   factory RateConfig.fromJson(Map<String, dynamic> j) => RateConfig(
         (j['blockHours'] as num).toInt(),
         (j['graceMinutes'] as num).toInt(),
         (j['sizes'] as Map<String, dynamic>).map((k, v) => MapEntry(k, SizeRate.fromJson(v as Map<String, dynamic>))),
+        overstayHours: ((j['overstayHours'] ?? 6) as num).toDouble(),
       );
 }
 
