@@ -60,6 +60,7 @@ class ApiService {
     String? photoBase64,
     required String plateSource,
     String? detectedPlate,
+    DateTime? entryAt,
   }) async {
     final r = await _req('POST', '/api/sessions/check-in', body: {
       'plate': plate,
@@ -70,6 +71,7 @@ class ApiService {
       if (photoBase64 != null) 'photoBase64': photoBase64,
       'plateSource': plateSource,
       if (detectedPlate != null) 'detectedPlate': detectedPlate,
+      if (entryAt != null) 'entryAt': entryAt.toUtc().toIso8601String(),
     });
     return ParkSession.fromJson(Map<String, dynamic>.from(r));
   }
