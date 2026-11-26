@@ -16,15 +16,15 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
 
 export type Size = 'motorcycle' | 'small' | 'medium' | 'large' | 'truck';
 export const SIZES: Size[] = ['motorcycle', 'small', 'medium', 'large', 'truck'];
-export interface Rates { currency: 'UGX'; blockHours: number; graceMinutes: number; sizes: Record<Size, { label: string; ratePerBlock: number }> }
+export interface Rates { currency: 'UGX'; blockHours: number; graceMinutes: number; overstayHours?: number; bikeLongStayDays?: number; bikeLongStayBlockHours?: number; sizes: Record<Size, { label: string; ratePerBlock: number }> }
 export interface Lot { id: string; name: string; address: string; capacity: number; active: boolean; rates: Rates }
 export interface Session {
   id: string; lotId: string; lotName: string; plate: string; size: Size; status: 'parked' | 'exited';
   ownerName?: string | null; ownerPhone?: string | null; hasPhoto: boolean;
   entryAt: string; exitAt?: string | null; amount?: number | null; minutes?: number | null; blocks?: number | null;
-  paymentMethod?: string | null; plateSource?: 'scan' | 'manual'; detectedPlate?: string | null; rates: Rates; checkedInBy?: { name: string }; checkedOutBy?: { name: string } | null;
+  paymentMethod?: string | null; backdated?: boolean; plateSource?: 'scan' | 'manual'; detectedPlate?: string | null; rates: Rates; checkedInBy?: { name: string }; checkedOutBy?: { name: string } | null;
 }
-export interface Activity { id: string; type: 'CHECK_IN' | 'CHECK_OUT' | 'LOGIN'; message: string; plate?: string; userName: string; lotName?: string; at: string }
+export interface Activity { id: string; type: 'CHECK_IN' | 'CHECK_OUT' | 'LOGIN' | 'ADMIN'; message: string; plate?: string; userName: string; lotName?: string; at: string }
 
 export const money = (n?: number | null) => `UGX ${Math.round(n ?? 0).toLocaleString('en-US')}`;
 export const fmtDateTime = (iso?: string | null) =>
@@ -33,11 +33,24 @@ export function duration(mins: number) {
   const d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
   return [d ? `${d}d` : '', h ? `${h}h` : '', `${m}m`].filter(Boolean).join(' ');
 }
+/** Same rules as the backend: grace, 6h late-pickup window after each block, bikes switch to 24h blocks after 7 days. */
 export function calcFee(entryMs: number, exitMs: number, size: Size, cfg: Rates) {
   const minutes = Math.max(0, Math.ceil((exitMs - entryMs) / 60000));
   if (minutes <= cfg.graceMinutes) return { minutes, blocks: 0, amount: 0 };
-  const blocks = Math.max(1, Math.ceil(minutes / (cfg.blockHours * 60)));
-  return { minutes, blocks, amount: blocks * cfg.sizes[size].ratePerBlock };
+  const rate = cfg.sizes[size].ratePerBlock;
+  const blockMin = cfg.blockHours * 60;
+  const windowMin = Math.round((cfg.overstayHours ?? 6) * 60);
+  const longDays = cfg.bikeLongStayDays ?? 7;
+  const longMin = (cfg.bikeLongStayBlockHours ?? 24) * 60;
+  const stdBlocks = 1 + Math.max(0, Math.ceil((minutes - windowMin) / blockMin) - 1);
+  if (size === 'motorcycle' && longDays > 0) {
+    const stdMax = Math.ceil((longDays * 1440) / blockMin);
+    const paidUntil = stdMax * blockMin;
+    const longBlocks = minutes > paidUntil + windowMin ? Math.ceil((minutes - paidUntil - windowMin) / longMin) : 0;
+    const blocks = Math.min(stdBlocks, stdMax) + longBlocks;
+    return { minutes, blocks, amount: blocks * rate };
+  }
+  return { minutes, blocks: stdBlocks, amount: stdBlocks * rate };
 }
 
 /** Auto-refreshing fetch: the admin sees mobile-app activity within seconds */
