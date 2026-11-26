@@ -7,7 +7,6 @@ import '../models.dart';
 import '../plate_scanner.dart';
 import '../theme.dart';
 import '../utils.dart';
-import '../widgets/plate_badge.dart';
 
 class CheckInScreen extends StatefulWidget {
   const CheckInScreen({super.key});
@@ -24,7 +23,6 @@ class _CheckInScreenState extends State<CheckInScreen> {
 
   // Step 1: what is parking?  'bike' | 'car' | 'lorry'
   String? _type;
-  String _carSize = 'small';
 
   bool _scanning = false, _busy = false;
   String? _hint, _err;
@@ -36,7 +34,8 @@ class _CheckInScreenState extends State<CheckInScreen> {
   bool _backdate = false;
   DateTime? _entryAt;
 
-  String get _size => _type == 'bike' ? 'motorcycle' : (_type == 'lorry' ? 'truck' : _carSize);
+  // Only three vehicle types. 'small' is the stored rate key for Car.
+  String get _size => _type == 'bike' ? 'motorcycle' : (_type == 'lorry' ? 'truck' : 'small');
 
   @override
   void dispose() {
@@ -113,29 +112,32 @@ class _CheckInScreenState extends State<CheckInScreen> {
     if (!_manual && _detected == null) return setState(() => _err = 'Scan the number plate first.');
     if (plate.length < 3 || plate.length > 20) return setState(() => _err = 'Enter a valid number plate (3 to 20 letters/digits).');
     if (_backdate && _entryAt == null) return setState(() => _err = 'Choose the time the car arrived.');
-    final photo = base64Encode(_bytes!);
-    if (photo.length > 880000) return setState(() => _err = 'The photo is too large. Retake it a little further from the plate.');
+    if (base64Encode(_bytes!).length > 880000) return setState(() => _err = 'The photo is too large. Retake it a little further from the plate.');
     setState(() {
       _busy = true;
       _err = null;
     });
     final state = context.read<AppState>();
     try {
-      await state.api.checkIn(
+      // saved on the phone first, then sent; on a weak connection it keeps sending in the background
+      final sent = await state.submitCheckIn(
         plate: plate,
         size: _size,
-        lotId: state.lot!.id,
         ownerName: _name.text.trim(),
         ownerPhone: _phone.text.trim(),
-        photoBase64: photo,
+        photo: _bytes!,
         plateSource: _manual ? 'manual' : 'scan',
         detectedPlate: _detected,
         entryAt: _backdate ? _entryAt : null,
       );
-      await state.refresh();
       if (!mounted) return;
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(backgroundColor: Brand.accent, content: Text('$plate logged in ✔', style: const TextStyle(color: Brand.navy, fontWeight: FontWeight.w700))));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: sent ? Brand.accent : Brand.amber,
+        duration: Duration(seconds: sent ? 3 : 6),
+        content: Text(sent ? '$plate logged in ✔' : '$plate saved on this phone - it will send when the signal is back',
+            style: const TextStyle(color: Brand.navy, fontWeight: FontWeight.w700)),
+      ));
     } catch (e) {
       setState(() => _err = e.toString());
     } finally {
@@ -160,11 +162,11 @@ class _CheckInScreenState extends State<CheckInScreen> {
           // ---- Step 1: what is parking? ------------------------------------
           _label('1 · WHAT IS PARKING?'),
           Row(children: [
-            Expanded(child: _typeTile('bike', 'Bike', Icons.two_wheeler_rounded, 'From ${ugx(rates.sizes['motorcycle']!.ratePerBlock)}')),
+            Expanded(child: _typeTile('bike', 'Bike', Icons.two_wheeler_rounded, ugx(rates.sizes['motorcycle']!.ratePerBlock))),
             const SizedBox(width: 10),
-            Expanded(child: _typeTile('car', 'Car', Icons.directions_car_rounded, 'From ${ugx(_carFrom(rates))}')),
+            Expanded(child: _typeTile('car', 'Car', Icons.directions_car_rounded, ugx(rates.sizes['small']!.ratePerBlock))),
             const SizedBox(width: 10),
-            Expanded(child: _typeTile('lorry', 'Lorry', Icons.local_shipping_rounded, 'From ${ugx(rates.sizes['truck']!.ratePerBlock)}')),
+            Expanded(child: _typeTile('lorry', 'Lorry', Icons.local_shipping_rounded, ugx(rates.sizes['truck']!.ratePerBlock))),
           ]),
           const SizedBox(height: 22),
 
@@ -246,11 +248,6 @@ class _CheckInScreenState extends State<CheckInScreen> {
                 style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50), foregroundColor: Brand.amber, side: const BorderSide(color: Brand.amber), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
               ),
             ],
-            if (_type == 'car') ...[
-              const SizedBox(height: 22),
-              _label('CAR SIZE'),
-              for (final k in const ['small', 'medium', 'large']) _sizeTile(k, rates),
-            ],
             const SizedBox(height: 6),
             Text(
               'Billed per ${rates.blockHours} hours · ${rates.overstayHours % 1 == 0 ? rates.overstayHours.toInt() : rates.overstayHours}h late-pickup window before the next block · first ${rates.graceMinutes} min free',
@@ -302,14 +299,6 @@ class _CheckInScreenState extends State<CheckInScreen> {
     );
   }
 
-  double _carFrom(RateConfig rates) {
-    var m = rates.sizes['small']!.ratePerBlock;
-    for (final k in const ['medium', 'large']) {
-      if (rates.sizes[k]!.ratePerBlock < m) m = rates.sizes[k]!.ratePerBlock;
-    }
-    return m;
-  }
-
   Widget _typeTile(String key, String label, IconData icon, String sub) {
     final sel = _type == key;
     return InkWell(
@@ -327,35 +316,8 @@ class _CheckInScreenState extends State<CheckInScreen> {
           const SizedBox(height: 8),
           Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
           const SizedBox(height: 2),
-          Text(sub, style: const TextStyle(color: Brand.muted, fontSize: 11), textAlign: TextAlign.center),
+          Text('$sub / ${context.read<AppState>().lot!.rates.blockHours}h', style: const TextStyle(color: Brand.muted, fontSize: 11), textAlign: TextAlign.center),
         ]),
-      ),
-    );
-  }
-
-  Widget _sizeTile(String key, RateConfig rates) {
-    final r = rates.sizes[key]!;
-    final sel = _carSize == key;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => setState(() => _carSize = key),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: sel ? Brand.accent.withValues(alpha: .12) : Brand.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: sel ? Brand.accent : Colors.transparent, width: 1.5),
-          ),
-          child: Row(children: [
-            Icon(sizeIcon(key), color: sel ? Brand.accent : Brand.muted),
-            const SizedBox(width: 12),
-            Expanded(child: Text(r.label, style: const TextStyle(fontWeight: FontWeight.w700))),
-            Text(ugx(r.ratePerBlock), style: TextStyle(fontWeight: FontWeight.w800, color: sel ? Brand.accent : Colors.white)),
-            Text(' /${rates.blockHours}h', style: const TextStyle(color: Brand.muted, fontSize: 12)),
-          ]),
-        ),
       ),
     );
   }
