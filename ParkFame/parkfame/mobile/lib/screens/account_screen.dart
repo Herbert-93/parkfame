@@ -12,6 +12,26 @@ class AccountScreen extends StatelessWidget {
     await FirebaseAuth.instance.signOut();
   }
 
+  /// Warns first if records are still waiting to be sent.
+  static Future<void> confirmSignOut(BuildContext context) async {
+    final s = context.read<AppState>();
+    if (s.pendingCount > 0) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('Records not sent yet'),
+          content: Text('${s.pendingCount} record(s) are saved on this phone and have not been sent. They stay safe and will send when you sign in again with a connection. Sign out anyway?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Sign out')),
+          ],
+        ),
+      );
+      if (ok != true || !context.mounted) return;
+    }
+    await signOut(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
@@ -31,7 +51,7 @@ class AccountScreen extends StatelessWidget {
         _tile(Icons.timer_rounded, 'Billing', 'Every ${s.lot?.rates.blockHours ?? 12} hours'),
         const SizedBox(height: 26),
         OutlinedButton.icon(
-          onPressed: () => signOut(context),
+          onPressed: () => confirmSignOut(context),
           icon: const Icon(Icons.logout_rounded),
           label: const Text('Sign out'),
           style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52), foregroundColor: Brand.danger, side: const BorderSide(color: Brand.danger), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
