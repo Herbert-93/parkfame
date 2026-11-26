@@ -11,13 +11,17 @@ class RateConfig {
   final int blockHours;
   final int graceMinutes;
   final double overstayHours;
+  final int longStayDays;
+  final int longStayBlockHours;
   final Map<String, SizeRate> sizes;
-  RateConfig(this.blockHours, this.graceMinutes, this.sizes, {this.overstayHours = 6});
+  RateConfig(this.blockHours, this.graceMinutes, this.sizes, {this.overstayHours = 6, this.longStayDays = 7, this.longStayBlockHours = 24});
   factory RateConfig.fromJson(Map<String, dynamic> j) => RateConfig(
         (j['blockHours'] as num).toInt(),
         (j['graceMinutes'] as num).toInt(),
         (j['sizes'] as Map<String, dynamic>).map((k, v) => MapEntry(k, SizeRate.fromJson(v as Map<String, dynamic>))),
         overstayHours: ((j['overstayHours'] ?? 6) as num).toDouble(),
+        longStayDays: ((j['longStayDays'] ?? j['bikeLongStayDays'] ?? 7) as num).toInt(),
+        longStayBlockHours: ((j['longStayBlockHours'] ?? j['bikeLongStayBlockHours'] ?? 24) as num).toInt(),
       );
 }
 
@@ -44,6 +48,7 @@ class ParkSession {
   final String? ownerName, ownerPhone, paymentMethod;
   final bool hasPhoto;
   final RateConfig? rates;
+  final bool pending; // saved on this phone, not yet sent to the server
 
   ParkSession({
     required this.id,
@@ -60,7 +65,27 @@ class ParkSession {
     this.paymentMethod,
     this.hasPhoto = false,
     this.rates,
+    this.pending = false,
   });
+
+  /// This record as a finished stay (used while a check-out is waiting to be sent).
+  ParkSession asExited({required DateTime exitAt, required num amount, required int minutes}) => ParkSession(
+        id: id,
+        lotId: lotId,
+        plate: plate,
+        size: size,
+        status: 'exited',
+        entryAt: entryAt,
+        exitAt: exitAt,
+        amount: amount,
+        minutes: minutes,
+        ownerName: ownerName,
+        ownerPhone: ownerPhone,
+        paymentMethod: 'cash',
+        hasPhoto: hasPhoto,
+        rates: rates,
+        pending: true,
+      );
 
   String get sizeLabel => rates?.sizes[size]?.label ?? size;
 
