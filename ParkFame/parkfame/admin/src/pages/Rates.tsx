@@ -5,7 +5,7 @@ import { useAuth } from '../auth';
 const blank = (): Omit<Lot, 'id'> => ({
   name: '', address: '', capacity: 50, active: true,
   rates: {
-    currency: 'UGX', blockHours: 12, graceMinutes: 10,
+    currency: 'UGX', blockHours: 12, graceMinutes: 10, overstayHours: 6, bikeLongStayDays: 7, bikeLongStayBlockHours: 24,
     sizes: {
       motorcycle: { label: 'Motorcycle', ratePerBlock: 2000 },
       small: { label: 'Small car', ratePerBlock: 5000 },
@@ -24,6 +24,7 @@ export default function Rates() {
   const [draft, setDraft] = useState<Omit<Lot, 'id'> | null>(null);
   const [msg, setMsg] = useState('');
   const [previewSize, setPreviewSize] = useState<Size>('small');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (lots && !selected && lots.length) setSelected(lots[0].id);
@@ -46,7 +47,16 @@ export default function Rates() {
     } catch (e: any) { setMsg(e.message); }
   };
 
-  const hours = [1, 6, 12, 13, 24, 25, 36, 48];
+  const remove = async () => {
+    const name = draft.name || 'this lot';
+    if (!window.confirm(`Delete ${name}? This cannot be undone. Past vehicle records are kept.`)) return;
+    setBusy(true); setMsg('');
+    try { await api(`/api/lots/${selected}`, { method: 'DELETE' }); setSelected(''); await reload(); }
+    catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  };
+
+  const hours = previewSize === 'motorcycle' ? [1, 12, 18, 19, 24, 168, 174, 175, 198, 199, 240, 336] : [1, 6, 12, 18, 19, 24, 30, 31, 48];
 
   return (
     <>
@@ -70,7 +80,15 @@ export default function Rates() {
             <label>Billing block (hours)<input className="input" type="number" min={1} value={draft.rates.blockHours} onChange={(e) => setRates((r) => { r.blockHours = +e.target.value; })} /></label>
             <label>Free grace (minutes)<input className="input" type="number" min={0} value={draft.rates.graceMinutes} onChange={(e) => setRates((r) => { r.graceMinutes = +e.target.value; })} /></label>
           </div>
-          <p className="muted small-t">Every started block is charged again. With 12-hour blocks: 0–12h = 1×, 12–24h = 2×, 24–36h = 3× …</p>
+          <div className="row2">
+            <label>Late-pickup window (hours)<input className="input" type="number" min={0} step={0.5} value={draft.rates.overstayHours ?? 6} onChange={(e) => setRates((r) => { r.overstayHours = +e.target.value; })} /></label>
+            <label>Bike long-stay after (days, 0 = off)<input className="input" type="number" min={0} value={draft.rates.bikeLongStayDays ?? 7} onChange={(e) => setRates((r) => { r.bikeLongStayDays = +e.target.value; })} /></label>
+          </div>
+          <div className="row2">
+            <label>Bike long-stay block (hours)<input className="input" type="number" min={1} value={draft.rates.bikeLongStayBlockHours ?? 24} onChange={(e) => setRates((r) => { r.bikeLongStayBlockHours = +e.target.value; })} /></label>
+            <span />
+          </div>
+          <p className="muted small-t">Each block is charged again, but only after the late-pickup window. With 12-hour blocks and a 6-hour window: up to 18h = 1×, up to 30h = 2×, up to 42h = 3× … Bikes parked longer than the long-stay days are then billed per long-stay block (same bike rate).</p>
 
           <h3>Rate per block (UGX)</h3>
           {SIZES.map((s) => (
@@ -80,6 +98,7 @@ export default function Rates() {
             </div>
           ))}
           <button className="btn primary" onClick={save}>Save lot &amp; rates</button>
+          {isMain && selected !== 'new' && <button className="btn small" disabled={busy} onClick={remove}>Delete this lot</button>}
           {msg && <div className={msg.startsWith('Saved') ? 'ok' : 'alert'}>{msg}</div>}
         </div>
 
