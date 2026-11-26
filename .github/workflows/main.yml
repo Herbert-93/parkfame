@@ -2,7 +2,7 @@ name: Build ParkFame Android APK
 on:
   workflow_dispatch: {}
   push:
-    paths: ['ParkFame/parkfame/mobile/**', '.github/workflows/main.yml']
+    paths: ['mobile/**', '.github/workflows/build-apk.yml']
 
 jobs:
   apk:
@@ -10,30 +10,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: '21' }
+        with: { distribution: temurin, java-version: '17' }
       - uses: subosito/flutter-action@v2
         with: { channel: stable, cache: true }
 
       - name: Create Flutter project around our source
         run: |
           flutter create --org com.parkfame --project-name parkfame --platforms=android app
-          rm -rf app/lib && cp -r ParkFame/parkfame/mobile/lib app/lib
+          rm -rf app/lib && cp -r mobile/lib app/lib
           cd app
-          flutter pub add firebase_core firebase_auth http image_picker google_mlkit_text_recognition provider intl google_fonts:^6.2.1
+          flutter pub add firebase_core firebase_auth http image_picker google_mlkit_text_recognition provider intl google_fonts path_provider
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle*
           sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <application|' android/app/src/main/AndroidManifest.xml
-          echo "-dontwarn com.google.mlkit.vision.text.**" > android/app/proguard-rules.pro
-          sed -i '/release {/a\            isMinifyEnabled = false\n            isShrinkResources = false\n            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")' android/app/build.gradle.kts
-          echo "---- build.gradle.kts ----" && cat android/app/build.gradle.kts
-
-      - name: Apply ParkFame "P" launcher icon
-        working-directory: app
-        run: |
-          mkdir -p assets/icon
-          cp ../ParkFame/parkfame/mobile/lib/assets/icon/*.png assets/icon/
-          cp ../ParkFame/parkfame/mobile/lib/flutter_launcher_icons.yaml .
-          flutter pub add --dev flutter_launcher_icons
-          dart run flutter_launcher_icons
 
       - name: Build release APK
         working-directory: app
