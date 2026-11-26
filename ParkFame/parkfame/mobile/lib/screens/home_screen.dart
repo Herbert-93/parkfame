@@ -72,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: const Icon(Icons.local_parking_rounded, color: Brand.navy, size: 28),
               ),
             ]),
+            _StatusBanner(s),
             const SizedBox(height: 20),
             Container(
               padding: const EdgeInsets.all(20),
@@ -164,12 +165,61 @@ class _SessionTile extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 Text(durationText(mins), style: const TextStyle(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
-                const Icon(Icons.chevron_right_rounded, color: Brand.muted),
+                s.pending ? const Icon(Icons.cloud_upload_outlined, color: Brand.amber, size: 20) : const Icon(Icons.chevron_right_rounded, color: Brand.muted),
               ]),
             ]),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Tells the attendant when the phone is offline, what is waiting to be sent, and anything the server refused.
+class _StatusBanner extends StatelessWidget {
+  final AppState s;
+  const _StatusBanner(this.s);
+
+  @override
+  Widget build(BuildContext context) {
+    final rejected = s.rejected;
+    if (!s.offline && s.pendingCount == 0 && rejected.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Column(children: [
+        if (s.offline || s.pendingCount > 0)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Brand.amber.withValues(alpha: .14), borderRadius: BorderRadius.circular(14), border: Border.all(color: Brand.amber)),
+            child: Row(children: [
+              Icon(s.offline ? Icons.cloud_off_rounded : Icons.cloud_upload_outlined, color: Brand.amber, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  [
+                    if (s.offline) 'No usable connection - working from saved data.',
+                    if (s.pendingCount > 0) '${s.pendingCount} waiting to send. Nothing is lost.',
+                  ].join(' '),
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+              if (s.pendingCount > 0)
+                s.syncing
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : TextButton(onPressed: s.refresh, child: const Text('Send now')),
+            ]),
+          ),
+        for (final m in rejected)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Brand.danger.withValues(alpha: .12), borderRadius: BorderRadius.circular(14), border: Border.all(color: Brand.danger)),
+            child: Text(m, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+        if (rejected.isNotEmpty) Align(alignment: Alignment.centerRight, child: TextButton(onPressed: s.dismissRejected, child: const Text('Dismiss'))),
+      ]),
     );
   }
 }
