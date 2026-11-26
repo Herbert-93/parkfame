@@ -19,7 +19,11 @@ const checkInSchema = z.object({
   plateSource: z.enum(['scan', 'manual']).default('manual'),
   detectedPlate: z.string().max(24).optional(),
   entryAt: z.string().datetime().optional(), // back-dating: car was already parked before it was logged
+  clientId: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(), // makes retries / offline sync safe (no duplicates)
+  capturedAt: z.string().datetime().optional(), // when the phone captured it (offline sync)
 });
+
+const MAX_OFFLINE_DAYS = 14;
 
 const MAX_BACKDATE_DAYS = 400;
 
@@ -59,6 +63,11 @@ r.post('/check-in', asyncH(async (req, res) => {
   const lotId = u.role === 'attendant' ? u.lotId : (body.lotId ?? u.lotId);
   if (!lotId) throw new HttpError(400, 'No parking lot is assigned to this account');
   assertAccess(u, lotId);
+  const sid = body.clientId ? `c_${body.clientId}` : null;
+  if (sid) {
+    const dup = await db.collection('sessions').doc(sid).get();
+    if (dup.exists) { assertAccess(u, dup.data()!.lotId); return res.status(200).json(sessionDto(dup)); } // already received
+  }
   const lotSnap = await db.collection('lots').doc(lotId).get();
   if (!lotSnap.exists) throw new HttpError(404, 'Parking lot not found');
   const lot = lotSnap.data()!;
@@ -72,34 +81,48 @@ r.post('/check-in', asyncH(async (req, res) => {
   const manual = body.plateSource === 'manual';
   const parked = await db.collection('sessions').where('lotId', '==', lotId).where('status', '==', 'parked').get();
   if (parked.docs.some((d) => d.data().plate === plate)) throw new HttpError(409, `${plate} is already parked in this lot`);
-  if (parked.size >= lot.capacity) throw new HttpError(409, 'Parking lot is full');
 
-  const ref = db.collection('sessions').doc();
+  const ref = sid ? db.collection('sessions').doc(sid) : db.collection('sessions').doc();
   const now = Timestamp.now();
-  let entryAt = now;
+  // capturedAt = when the phone really took the photo (differs from "now" only for offline sync)
+  let capturedMs = now.toMillis();
+  if (body.capturedAt) {
+    capturedMs = new Date(body.capturedAt).getTime();
+    if (capturedMs > now.toMillis() + 5 * 60_000) throw new HttpError(400, 'Capture time cannot be in the future');
+    if (capturedMs < now.toMillis() - MAX_OFFLINE_DAYS * 86400_000) throw new HttpError(400, `Offline records older than ${MAX_OFFLINE_DAYS} days cannot be synced`);
+  }
+  const syncedLate = capturedMs < now.toMillis() - 2 * 60_000;
+  const captured = Timestamp.fromMillis(Math.min(capturedMs, now.toMillis()));
+  let entryAt = captured;
   let backdated = false;
   if (body.entryAt) {
     const t = new Date(body.entryAt).getTime();
-    if (t > now.toMillis() + 5 * 60_000) throw new HttpError(400, 'Entry time cannot be in the future');
-    if (t < now.toMillis() - MAX_BACKDATE_DAYS * 86400_000) throw new HttpError(400, `Entry time cannot be more than ${MAX_BACKDATE_DAYS} days ago`);
-    if (t < now.toMillis() - 60_000) { entryAt = Timestamp.fromMillis(t); backdated = true; }
+    if (t > capturedMs + 5 * 60_000) throw new HttpError(400, 'Entry time cannot be in the future');
+    if (t < capturedMs - MAX_BACKDATE_DAYS * 86400_000) throw new HttpError(400, `Entry time cannot be more than ${MAX_BACKDATE_DAYS} days ago`);
+    if (t < capturedMs - 60_000) { entryAt = Timestamp.fromMillis(t); backdated = true; }
   }
+  // a car that is physically there must always be recordable, so a late (offline) sync ignores the capacity limit
+  if (!syncedLate && parked.size >= lot.capacity) throw new HttpError(409, 'Parking lot is full');
   const batch = db.batch();
-  batch.set(ref, {
+  batch.create(ref, {
     lotId, lotName: lot.name, plate, size: body.size, status: 'parked',
     plateSource: body.plateSource, detectedPlate: detected,
     ownerName: body.ownerName ?? null, ownerPhone: body.ownerPhone ?? null,
     photoThumb: body.photoBase64 ?? null,
-    entryAt, backdated, recordedAt: now, exitAt: null, amount: null, minutes: null, blocks: null, paymentMethod: null,
+    entryAt, backdated, syncedLate, recordedAt: now, exitAt: null, amount: null, minutes: null, blocks: null, paymentMethod: null,
     rates: lot.rates, // snapshot: later rate changes never affect a car already parked
     checkedInBy: { uid: u.uid, name: u.name }, checkedOutBy: null,
   });
   batch.set(db.collection('activity').doc(), {
-    type: 'CHECK_IN', message: `${u.name} checked in ${plate} (${lot.rates.sizes[body.size].label})${manual ? ' [MANUAL ENTRY - scan not used]' : ''}${backdated ? ` [BACK-DATED: parked since ${entryAt.toDate().toISOString()}]` : ''}`,
+    type: 'CHECK_IN', message: `${u.name} checked in ${plate} (${lot.rates.sizes[body.size].label})${manual ? ' [MANUAL ENTRY - scan not used]' : ''}${backdated ? ` [BACK-DATED: parked since ${entryAt.toDate().toISOString()}]` : ''}${syncedLate ? ` [RECORDED OFFLINE at ${captured.toDate().toISOString()}, synced later]` : ''}`,
     flagged: manual || backdated,
-    sessionId: ref.id, plate, userId: u.uid, userName: u.name, lotId, lotName: lot.name, at: now,
+    sessionId: ref.id, plate, userId: u.uid, userName: u.name, lotId, lotName: lot.name, at: captured,
   });
-  await batch.commit();
+  try { await batch.commit(); }
+  catch (e) {
+    if (sid && (e as { code?: number }).code === 6) return res.status(200).json(sessionDto(await ref.get())); // two retries raced: keep the first
+    throw e;
+  }
   res.status(201).json(sessionDto(await ref.get()));
 }));
 
@@ -180,6 +203,8 @@ r.get('/:id/quote', asyncH(async (req, res) => {
 r.post('/:id/check-out', asyncH(async (req, res) => {
   const paymentMethod = 'cash'; // cash-only operation
   const u = req.user!;
+  // exitAt = when the phone really collected the cash (only differs from "now" when the phone was offline)
+  const body = z.object({ exitAt: z.string().datetime().optional() }).parse(req.body ?? {});
   const ref = db.collection('sessions').doc(req.params.id);
 
   const out = await db.runTransaction(async (tx) => {
@@ -188,15 +213,25 @@ r.post('/:id/check-out', asyncH(async (req, res) => {
     const s = snap.data()!;
     assertAccess(u, s.lotId);
     if (s.status !== 'parked') throw new HttpError(409, 'This car has already been checked out');
-    const exitAt = Timestamp.now();
+    const now = Timestamp.now();
+    let exitAt = now;
+    let late = false;
+    if (body.exitAt) {
+      const t = new Date(body.exitAt).getTime();
+      if (t > now.toMillis() + 5 * 60_000) throw new HttpError(400, 'Check-out time cannot be in the future');
+      if (t < now.toMillis() - MAX_OFFLINE_DAYS * 86400_000) throw new HttpError(400, `Offline records older than ${MAX_OFFLINE_DAYS} days cannot be synced`);
+      if (t < s.entryAt.toMillis()) throw new HttpError(400, 'Check-out time cannot be before the check-in time');
+      exitAt = Timestamp.fromMillis(Math.min(t, now.toMillis()));
+      late = t < now.toMillis() - 2 * 60_000;
+    }
     const q = calculateFee(s.entryAt.toMillis(), exitAt.toMillis(), s.size, s.rates as RateConfig);
     tx.update(ref, {
       status: 'exited', exitAt, amount: q.amount, minutes: q.minutes, blocks: q.blocks,
-      paymentMethod, checkedOutBy: { uid: u.uid, name: u.name },
+      paymentMethod, checkedOutBy: { uid: u.uid, name: u.name }, ...(late ? { syncedLate: true } : {}),
     });
     tx.set(db.collection('activity').doc(), {
       type: 'CHECK_OUT',
-      message: `${u.name} checked out ${s.plate} - UGX ${q.amount.toLocaleString('en-US')} (cash)`,
+      message: `${u.name} checked out ${s.plate} - UGX ${q.amount.toLocaleString('en-US')} (cash)${late ? ` [RECORDED OFFLINE at ${exitAt.toDate().toISOString()}, synced later]` : ''}`,
       sessionId: ref.id, plate: s.plate, amount: q.amount, userId: u.uid, userName: u.name,
       lotId: s.lotId, lotName: s.lotName, at: exitAt,
     });
