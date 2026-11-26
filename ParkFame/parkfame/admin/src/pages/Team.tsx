@@ -34,6 +34,25 @@ export default function Team() {
   };
   const toggleLot = (id: string) => setA({ ...a, lotIds: a.lotIds.includes(id) ? a.lotIds.filter((x) => x !== id) : [...a.lotIds, id] });
   const toggle = async (u: U) => { await api(`/api/users/${u.uid}`, { method: 'PATCH', body: JSON.stringify({ active: !u.active }) }); reload(); };
+  const [ed, setEd] = useState<{ u: U; name: string; password: string; lotId: string; all: boolean; lotIds: string[] } | null>(null);
+  const [edErr, setEdErr] = useState('');
+  const openEdit = (u: U) => { setEdErr(''); setEd({ u, name: u.name, password: '', lotId: u.lotId ?? '', all: !Array.isArray(u.lotIds), lotIds: Array.isArray(u.lotIds) ? u.lotIds : [] }); };
+  const saveEdit = async () => {
+    if (!ed) return; setEdErr('');
+    const body: Record<string, unknown> = { name: ed.name };
+    if (ed.password) body.password = ed.password;
+    if (ed.u.role === 'attendant') body.lotId = ed.lotId;
+    else if (ed.u.uid !== user?.uid) {
+      if (!ed.all && !ed.lotIds.length) { setEdErr('Select at least one parking lot, or give access to all lots.'); return; }
+      body.lotIds = ed.all ? null : ed.lotIds;
+    }
+    try { await api(`/api/users/${ed.u.uid}`, { method: 'PATCH', body: JSON.stringify(body) }); setEd(null); reload(); }
+    catch (e: any) { setEdErr(e.message); }
+  };
+  const remove = async (u: U) => {
+    if (!window.confirm(`Delete ${u.name}'s account? They will no longer be able to sign in. This cannot be undone.`)) return;
+    try { await api(`/api/users/${u.uid}`, { method: 'DELETE' }); reload(); } catch (e: any) { window.alert(e.message); }
+  };
   const lotName = (id: string | null) => lots?.find((l) => l.id === id)?.name ?? '-';
   const lotsOf = (u: U) => u.role === 'admin'
     ? (Array.isArray(u.lotIds) ? u.lotIds.map(lotName).join(', ') : 'All lots')
@@ -89,13 +108,46 @@ export default function Team() {
                   <td><b>{u.name}</b><div className="muted">{u.email}</div></td>
                   <td>{u.role}</td><td>{lotsOf(u)}</td>
                   <td><span className={`pill ${u.active ? 'green' : 'red'}`}>{u.active ? 'Active' : 'Disabled'}</span></td>
-                  <td>{(u.role !== 'admin' || (isMain && u.uid !== user?.uid)) && <button className="btn small" onClick={() => toggle(u)}>{u.active ? 'Disable' : 'Enable'}</button>}</td>
+                  <td>
+                    {(u.role !== 'admin' || (isMain && u.uid !== user?.uid)) && <button className="btn small" onClick={() => toggle(u)}>{u.active ? 'Disable' : 'Enable'}</button>}
+                    {(u.role !== 'admin' || isMain) && <button className="btn small" onClick={() => openEdit(u)}>Edit</button>}
+                    {isMain && u.uid !== user?.uid && <button className="btn small" onClick={() => remove(u)}>Delete</button>}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </section>
+
+      {ed && (
+        <div className="modal" onClick={() => setEd(null)}>
+          <div className="modal-card form" onClick={(e) => e.stopPropagation()}>
+            <div className="card-h"><h3>Edit {ed.u.role}</h3><button className="btn small" onClick={() => setEd(null)}>Close</button></div>
+            <label>Full name<input className="input" value={ed.name} onChange={(e) => setEd({ ...ed, name: e.target.value })} /></label>
+            <label>New password (leave empty to keep)<input className="input" type="text" minLength={8} value={ed.password} onChange={(e) => setEd({ ...ed, password: e.target.value })} /></label>
+            {ed.u.role === 'attendant' && (
+              <label>Parking lot
+                <select className="input" value={ed.lotId} onChange={(e) => setEd({ ...ed, lotId: e.target.value })}>
+                  {lots?.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </label>
+            )}
+            {ed.u.role === 'admin' && ed.u.uid !== user?.uid && (
+              <div>
+                <label className="check"><input type="checkbox" checked={ed.all} onChange={(e) => setEd({ ...ed, all: e.target.checked })} /> Main admin (access to all parking lots)</label>
+                {!ed.all && lots?.map((l) => (
+                  <label className="check" key={l.id}>
+                    <input type="checkbox" checked={ed.lotIds.includes(l.id)} onChange={() => setEd({ ...ed, lotIds: ed.lotIds.includes(l.id) ? ed.lotIds.filter((x) => x !== l.id) : [...ed.lotIds, l.id] })} /> {l.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            {edErr && <div className="alert">{edErr}</div>}
+            <button className="btn primary" onClick={saveEdit}>Save changes</button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
