@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { auth, db } from '../firebase';
 import { defaultRates } from '../billing';
 import { canAccessLot, isSuperAdmin, lotScope, requireAdmin, requireSuperAdmin } from '../middleware';
-import { asyncH, HttpError, serialize } from '../lib/util';
+import { asyncH, HttpError, logAdmin, serialize } from '../lib/util';
 
 const r = Router();
 
@@ -13,6 +13,9 @@ const ratesSchema = z.object({
   currency: z.literal('UGX').default('UGX'),
   blockHours: z.number().int().min(1).max(168),
   graceMinutes: z.number().int().min(0).max(240),
+  overstayHours: z.number().min(0).max(72).default(6),
+  bikeLongStayDays: z.number().int().min(0).max(365).default(7),
+  bikeLongStayBlockHours: z.number().int().min(1).max(168).default(24),
   sizes: z.object({ motorcycle: sizeRate, small: sizeRate, medium: sizeRate, large: sizeRate, truck: sizeRate }),
 });
 const lotSchema = z.object({
@@ -49,6 +52,24 @@ r.put('/lots/:id', requireAdmin, asyncH(async (req, res) => {
   if (!(await ref.get()).exists) throw new HttpError(404, 'Lot not found');
   await ref.update({ ...body, updatedAt: Timestamp.now() });
   res.json({ id: ref.id, ...body });
+}));
+
+r.delete('/lots/:id', requireSuperAdmin, asyncH(async (req, res) => {
+  const id = req.params.id;
+  const ref = db.collection('lots').doc(id);
+  const lot = await ref.get();
+  if (!lot.exists) throw new HttpError(404, 'Lot not found');
+  const parked = await db.collection('sessions').where('lotId', '==', id).where('status', '==', 'parked').get();
+  if (!parked.empty) throw new HttpError(409, `${parked.size} vehicle(s) are still parked in this lot. Check them out first.`);
+  const staff = await db.collection('users').where('lotId', '==', id).get();
+  if (staff.docs.some((d) => d.data().role === 'attendant')) throw new HttpError(409, 'This lot still has attendants. Move or delete them first.');
+  // take the lot away from any lot admin who managed it
+  const admins = await db.collection('users').where('role', '==', 'admin').get();
+  await Promise.all(admins.docs.filter((d) => Array.isArray(d.data().lotIds) && d.data().lotIds.includes(id))
+    .map((d) => d.ref.update({ lotIds: FieldValue.arrayRemove(id) })));
+  await ref.delete();
+  await logAdmin(req.user!, `deleted parking lot ${lot.data()!.name} (past records are kept)`);
+  res.json({ ok: true });
 }));
 
 // ---- users (admins & attendants) ------------------------------------------
@@ -92,8 +113,9 @@ r.post('/users', requireAdmin, asyncH(async (req, res) => {
 
 r.patch('/users/:uid', requireAdmin, asyncH(async (req, res) => {
   const b = z.object({
-    active: z.boolean().optional(), lotId: z.string().nullable().optional(), name: z.string().optional(),
+    active: z.boolean().optional(), lotId: z.string().nullable().optional(), name: z.string().min(2).optional(),
     lotIds: z.array(z.string()).min(1).nullable().optional(),
+    password: z.string().min(8).optional(), // reset password
   }).parse(req.body);
   const me = req.user!;
   const ref = db.collection('users').doc(req.params.uid);
@@ -109,9 +131,32 @@ r.patch('/users/:uid', requireAdmin, asyncH(async (req, res) => {
     if (b.lotId !== undefined && !canAccessLot(me, b.lotId)) throw new HttpError(403, 'You do not manage that parking lot');
     if (b.lotIds !== undefined) throw new HttpError(400, 'lotIds applies to admins only');
   }
+  const wanted = [...(b.lotId ? [b.lotId] : []), ...(b.lotIds ?? [])];
+  if (wanted.length) {
+    const found = await Promise.all(wanted.map((id) => db.collection('lots').doc(id).get()));
+    if (found.some((l) => !l.exists)) throw new HttpError(400, 'Parking lot not found');
+  }
 
-  if (b.active !== undefined) await auth.updateUser(req.params.uid, { disabled: !b.active });
-  await ref.update(b);
+  const { password, ...fields } = b;
+  const authUpdate: { disabled?: boolean; password?: string; displayName?: string } = {};
+  if (b.active !== undefined) authUpdate.disabled = !b.active;
+  if (password) authUpdate.password = password;
+  if (b.name) authUpdate.displayName = b.name;
+  if (Object.keys(authUpdate).length) await auth.updateUser(req.params.uid, authUpdate);
+  if (Object.keys(fields).length) await ref.update(fields);
+  res.json({ ok: true });
+}));
+
+// Main admin only: remove an account completely
+r.delete('/users/:uid', requireSuperAdmin, asyncH(async (req, res) => {
+  if (req.params.uid === req.user!.uid) throw new HttpError(400, 'You cannot delete your own account');
+  const ref = db.collection('users').doc(req.params.uid);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpError(404, 'User not found');
+  try { await auth.deleteUser(req.params.uid); }
+  catch (e) { if ((e as { code?: string }).code !== 'auth/user-not-found') throw e; }
+  await ref.delete();
+  await logAdmin(req.user!, `deleted the ${snap.data()!.role} account of ${snap.data()!.name}`);
   res.json({ ok: true });
 }));
 
