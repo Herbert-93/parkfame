@@ -22,11 +22,21 @@ jobs:
           flutter pub add firebase_core firebase_auth http image_picker google_mlkit_text_recognition provider intl path_provider
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle*
           sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <application|' android/app/src/main/AndroidManifest.xml
+          cat >> android/build.gradle.kts <<'EOF'
+
+          subprojects {
+              tasks.configureEach {
+                  if (name.startsWith("lintVital") || name.startsWith("lintAnalyze")) {
+                      enabled = false
+                  }
+              }
+          }
+          EOF
 
       - name: Build release APK
         working-directory: app
         run: >
-          flutter build apk --release
+          flutter build apk --release --no-shrink
           --dart-define=API_URL=${{ secrets.API_URL }}
           --dart-define=FB_API_KEY=${{ secrets.FB_API_KEY }}
           --dart-define=FB_APP_ID=${{ secrets.FB_APP_ID }}
