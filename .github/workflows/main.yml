@@ -22,6 +22,14 @@ jobs:
           flutter pub add firebase_core firebase_auth http image_picker google_mlkit_text_recognition provider intl path_provider
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/; s/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/' android/app/build.gradle*
           sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <application|' android/app/src/main/AndroidManifest.xml
+          cat > android/app/proguard-rules.pro <<'EOF'
+          -dontwarn com.google.mlkit.vision.text.chinese.**
+          -dontwarn com.google.mlkit.vision.text.devanagari.**
+          -dontwarn com.google.mlkit.vision.text.japanese.**
+          -dontwarn com.google.mlkit.vision.text.korean.**
+          EOF
+          sed -i '/signingConfigs.getByName("debug")/a\            isMinifyEnabled = false\n            isShrinkResources = false\n            proguardFiles("proguard-rules.pro")' android/app/build.gradle.kts
+          grep -n -B2 -A4 "isMinifyEnabled" android/app/build.gradle.kts
           cat >> android/build.gradle.kts <<'EOF'
 
           subprojects {
