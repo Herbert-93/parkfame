@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../api_service.dart';
 import '../app_state.dart';
 import '../models.dart';
 import '../theme.dart';
@@ -22,6 +23,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   bool _busy = false;
   String? _err;
   Timer? _timer;
+  bool _estimated = false; // price worked out on the phone (no connection)
 
   ParkSession get s => widget.session;
   bool get parked => s.status == 'parked';
@@ -29,18 +31,32 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
   @override
   void initState() {
     super.initState();
-    final api = context.read<AppState>().api;
-    api.photo(s.id).then((p) => mounted ? setState(() => _photo = p) : null).catchError((_) {});
+    final state = context.read<AppState>();
+    if (s.pending) {
+      state.localPhoto(s).then((p) => mounted ? setState(() => _photo = p) : null).catchError((_) {});
+    } else {
+      state.api.photo(s.id).then((p) => mounted ? setState(() => _photo = p) : null).catchError((_) {});
+    }
     if (parked) {
+      _quote = state.localQuote(s); // show a price at once; replaced by the server's figure when it arrives
+      _estimated = true;
       _loadQuote();
       _timer = Timer.periodic(const Duration(seconds: 30), (_) => _loadQuote());
     }
   }
 
   Future<void> _loadQuote() async {
+    final state = context.read<AppState>();
+    if (s.pending) {
+      if (mounted) setState(() { _quote = state.localQuote(s); _estimated = true; });
+      return;
+    }
     try {
-      final q = await context.read<AppState>().api.quote(s.id);
-      if (mounted) setState(() => _quote = q);
+      final q = await state.api.quote(s.id);
+      if (mounted) setState(() { _quote = q; _estimated = false; _err = null; });
+    } on OfflineException {
+      // no signal: quote from the phone so the attendant is never stuck
+      if (mounted) setState(() { _quote = state.localQuote(s); _estimated = true; });
     } catch (e) {
       if (mounted) setState(() => _err = e.toString());
     }
@@ -59,8 +75,8 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
     });
     final state = context.read<AppState>();
     try {
-      final q = await state.api.checkOut(s.id);
-      await state.refresh();
+      final out = await state.checkOut(s);
+      final q = out.quote;
       if (!mounted) return;
       await showModalBottomSheet(
         context: context,
@@ -78,6 +94,10 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
             const SizedBox(height: 18),
             Text(ugx(q.amount), style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Brand.accent)),
             Text('${durationText(q.minutes)} · ${q.blocks} × ${ugx(q.ratePerBlock)} · Cash', style: const TextStyle(color: Brand.muted)),
+            if (!out.sent) ...[
+              const SizedBox(height: 10),
+              const Text('Saved on this phone - it will be sent when the signal is back.', textAlign: TextAlign.center, style: TextStyle(color: Brand.amber, fontSize: 12, fontWeight: FontWeight.w600)),
+            ],
             const SizedBox(height: 24),
             FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Done')),
           ]),
@@ -119,7 +139,7 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
             child: q == null
                 ? const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()))
                 : Column(children: [
-                    const Text('Amount due', style: TextStyle(color: Color(0xFF9FB0CF))),
+                    Text(_estimated ? 'Amount due (worked out on this phone)' : 'Amount due', style: const TextStyle(color: Color(0xFF9FB0CF))),
                     const SizedBox(height: 4),
                     Text(ugx(q.amount), style: const TextStyle(fontSize: 38, fontWeight: FontWeight.w900, color: Brand.accent, letterSpacing: -1)),
                     const SizedBox(height: 6),
