@@ -94,16 +94,16 @@ Quote calcQuote(DateTime entry, DateTime exit, String size, RateConfig cfg) {
 
   if (minutes <= cfg.graceMinutes) return Quote(minutes, 0, rate, 0, at(cfg.graceMinutes));
 
-  final stdBlocks = 1 + math.max(0, ((minutes - windowMin) / blockMin).ceil() - 1);
+  final int stdBlocks = 1 + math.max<int>(0, ((minutes - windowMin) / blockMin).ceil() - 1);
 
   if (cfg.longStayDays > 0) {
-    final stdMax = ((cfg.longStayDays * 1440) / blockMin).ceil();
-    final paidUntil = stdMax * blockMin;
-    final longMin = cfg.longStayBlockHours * 60;
-    final blocksStd = math.min(stdBlocks, stdMax);
-    final longBlocks = minutes > paidUntil + windowMin ? ((minutes - paidUntil - windowMin) / longMin).ceil() : 0;
-    final blocks = blocksStd + longBlocks;
-    final next = blocksStd >= stdMax ? paidUntil + windowMin + longBlocks * longMin : blocksStd * blockMin + windowMin;
+    final int stdMax = ((cfg.longStayDays * 1440) / blockMin).ceil();
+    final int paidUntil = stdMax * blockMin;
+    final int longMin = cfg.longStayBlockHours * 60;
+    final int blocksStd = math.min<int>(stdBlocks, stdMax);
+    final int longBlocks = minutes > paidUntil + windowMin ? ((minutes - paidUntil - windowMin) / longMin).ceil() : 0;
+    final int blocks = blocksStd + longBlocks;
+    final int next = blocksStd >= stdMax ? paidUntil + windowMin + longBlocks * longMin : blocksStd * blockMin + windowMin;
     return Quote(minutes, blocks, rate, blocks * rate, at(next));
   }
   return Quote(minutes, stdBlocks, rate, stdBlocks * rate, at(stdBlocks * blockMin + windowMin));
