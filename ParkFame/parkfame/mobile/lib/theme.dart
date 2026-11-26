@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class Brand {
   static const navy = Color(0xFF0B1220);
@@ -20,12 +19,11 @@ ThemeData buildTheme() {
   );
   return base.copyWith(
     scaffoldBackgroundColor: Brand.navy,
-    textTheme: GoogleFonts.interTextTheme(base.textTheme),
     appBarTheme: AppBarTheme(
       backgroundColor: Brand.navy,
       elevation: 0,
       scrolledUnderElevation: 0,
-      titleTextStyle: GoogleFonts.inter(fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white),
+      titleTextStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -37,7 +35,7 @@ ThemeData buildTheme() {
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(54),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 16),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
